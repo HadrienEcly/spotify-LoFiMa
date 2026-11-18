@@ -6,22 +6,16 @@ Une **copie de sauvegarde** de chaque musique est conservée dans `archive/` : s
 
 ## Installation (Windows)
 
-1. Installer **Python 3.11+** (https://www.python.org, cocher « Add to PATH »).
-2. Installer **ffmpeg** (requis pour la conversion mp3) :
-   ```bash
-   winget install Gyan.FFmpeg
-   ```
-   puis rouvrir le terminal.
-3. Double-cliquer sur `run.bat` (le premier lancement installe les dépendances) → le navigateur s'ouvre sur http://127.0.0.1:8000.
+1. Installer **Python 3.11+** (https://www.python.org, cocher « Add python.exe to PATH »).
+2. Double-cliquer sur **`install.bat`**. Il :
+   - crée l'environnement virtuel `.venv` ;
+   - installe/met à jour les dépendances Python dedans ;
+   - installe **ffmpeg** avec `winget` s'il n'est pas déjà présent (ferme ensuite la fenêtre pour que le PATH soit pris en compte).
+3. Double-cliquer sur **`start.bat`** → l'appli démarre et le navigateur s'ouvre sur http://127.0.0.1:8000. Fermer la fenêtre arrête l'appli.
 
-Lancement manuel :
-```bash
-python -m venv .venv
-.venv\Scripts\pip install -r requirements.txt
-.venv\Scripts\python -m lofima
-```
+Options : `start.bat --port 8080 --no-browser`.
 
-> YouTube change souvent son fonctionnement : si les téléchargements échouent, mets yt-dlp à jour avec `.venv\Scripts\pip install -U yt-dlp`.
+> YouTube change souvent son fonctionnement : si les téléchargements échouent, relance `install.bat` (il met yt-dlp à jour).
 
 ## Brancher Spotify
 

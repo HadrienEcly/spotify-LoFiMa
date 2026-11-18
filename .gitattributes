@@ -1,0 +1,3 @@
+# Les scripts Windows doivent garder des fins de ligne CRLF, sinon cmd.exe
+# peut mal interpréter les labels (goto) quand Git les convertit en LF.
+*.bat text eol=crlf

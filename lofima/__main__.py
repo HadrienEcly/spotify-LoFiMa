@@ -43,7 +43,7 @@ def main() -> None:
 
     if shutil.which("ffmpeg") is None:
         print("ATTENTION : ffmpeg introuvable dans le PATH, la conversion en mp3 échouera.")
-        print("            Windows : winget install Gyan.FFmpeg   (puis rouvrir le terminal)")
+        print("            Windows : lance install.bat (il installe ffmpeg avec winget)")
 
     url = f"http://127.0.0.1:{args.port}"
     if not args.no_browser:
