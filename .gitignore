@@ -1,0 +1,13 @@
+# Environnement Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Réglages propres à la machine (chemin du dossier Spotify, etc.)
+settings.json
+
+# Archive : seules les métadonnées (archive/metadata/*.json) sont versionnées.
+# Les mp3 et pochettes restent en local (trop lourds pour Git + droits d'auteur).
+archive/audio/
+archive/covers/

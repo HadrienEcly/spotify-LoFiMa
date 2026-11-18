@@ -1,0 +1,10 @@
+# Serveur web + API
+fastapi>=0.115
+uvicorn>=0.30
+python-multipart>=0.0.9   # nécessaire pour l'upload de pochette (formulaire multipart)
+# Téléchargement YouTube (à mettre à jour souvent : pip install -U yt-dlp)
+yt-dlp>=2024.10.0
+# Écriture des tags ID3 dans les mp3
+mutagen>=1.47
+# Recadrage / conversion des pochettes
+pillow>=10.0

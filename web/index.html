@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LoFiMa</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- type="module" : permet d'utiliser import/export entre api.js et app.js -->
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>LoFiMa <small>YouTube → Spotify local files</small></h1>
+    <button id="open-settings" class="btn ghost" title="Réglages">⚙ Réglages</button>
+  </header>
+
+  <main>
+    <!-- 1. Ajout d'un lien -->
+    <form id="add-form" class="add-bar">
+      <input id="add-url" type="url" required placeholder="Colle un lien YouTube…" autocomplete="off">
+      <button id="add-submit" class="btn primary" type="submit">Ajouter</button>
+    </form>
+    <p id="add-status" class="status" hidden></p>
+
+    <!-- 2. Bibliothèque -->
+    <div class="list-header">
+      <input id="search" type="search" placeholder="Rechercher titre, artiste, album…">
+      <span id="count" class="muted"></span>
+    </div>
+    <ul id="track-list" class="track-list"></ul>
+    <p id="empty" class="muted center" hidden>Aucune musique pour l'instant. Colle un lien ci-dessus.</p>
+  </main>
+
+  <!-- Lecteur audio partagé (un seul à la fois) -->
+  <audio id="player" controls hidden></audio>
+
+  <!-- Fenêtre : modification d'une musique -->
+  <dialog id="edit-dialog">
+    <form id="edit-form" method="dialog">
+      <h2>Modifier</h2>
+      <div class="edit-grid">
+        <div class="cover-box">
+          <img id="edit-cover" alt="Pochette">
+          <label class="btn ghost small">
+            Changer la pochette
+            <input id="edit-cover-input" type="file" accept="image/*" hidden>
+          </label>
+        </div>
+        <div class="fields">
+          <!-- name = nom du champ dans TrackTags (models.py) -->
+          <label>Titre <input name="title"></label>
+          <label>Artiste <input name="artist"></label>
+          <label>Album <input name="album"></label>
+          <label>Artiste de l'album <input name="album_artist"></label>
+          <div class="row">
+            <label>Année <input name="year" inputmode="numeric"></label>
+            <label>N° piste <input name="track_number"></label>
+          </div>
+          <label>Genre <input name="genre"></label>
+          <label>Commentaire <input name="comment"></label>
+        </div>
+      </div>
+
+      <details class="source">
+        <summary>Source d'origine</summary>
+        <dl id="edit-source"></dl>
+      </details>
+
+      <div class="actions">
+        <div class="left">
+          <button type="button" id="edit-redownload" class="btn ghost small">Re-télécharger</button>
+          <button type="button" id="edit-export" class="btn ghost small">Réexporter vers Spotify</button>
+          <button type="button" id="edit-remove" class="btn ghost small">Retirer de Spotify</button>
+          <button type="button" id="edit-delete" class="btn danger small">Supprimer définitivement</button>
+        </div>
+        <div class="right">
+          <button type="button" id="edit-cancel" class="btn ghost">Fermer</button>
+          <button type="submit" id="edit-save" class="btn primary">Enregistrer</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Fenêtre : réglages -->
+  <dialog id="settings-dialog">
+    <form id="settings-form" method="dialog">
+      <h2>Réglages</h2>
+      <label>Dossier d'export (à ajouter dans Spotify › Paramètres › Fichiers locaux)
+        <input name="export_dir" required placeholder="C:\Users\moi\Music\LoFiMa">
+      </label>
+      <p class="hint">Astuce : un dossier de « Google Drive pour ordinateur » synchronise aussi tes musiques sur Drive.</p>
+      <label>Qualité mp3
+        <select name="audio_quality_kbps">
+          <option value="128">128 kbps</option>
+          <option value="192">192 kbps</option>
+          <option value="256">256 kbps</option>
+          <option value="320">320 kbps</option>
+        </select>
+      </label>
+      <label class="checkbox"><input type="checkbox" name="crop_cover_square"> Recadrer la miniature en carré</label>
+
+      <div class="actions">
+        <div class="left">
+          <button type="button" id="sync-all" class="btn ghost small"
+                  title="Re-télécharge les mp3 manquants et réexporte tout vers le dossier">
+            Resynchroniser tout
+          </button>
+        </div>
+        <div class="right">
+          <button type="button" id="settings-cancel" class="btn ghost">Fermer</button>
+          <button type="submit" class="btn primary">Enregistrer</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Notifications temporaires -->
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <!-- Modèle HTML d'une ligne de la liste, cloné par app.js -->
+  <template id="track-template">
+    <li class="track">
+      <img class="cover" alt="" loading="lazy">
+      <div class="info">
+        <strong class="title"></strong>
+        <span class="artist muted"></span>
+        <span class="badges"></span>
+      </div>
+      <div class="track-actions">
+        <button class="btn ghost small play" title="Écouter">▶</button>
+        <button class="btn ghost small edit">Modifier</button>
+      </div>
+    </li>
+  </template>
+</body>
+</html>
