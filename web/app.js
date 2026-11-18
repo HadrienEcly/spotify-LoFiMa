@@ -1,13 +1,16 @@
-// Logique de l'interface. Organisation :
-//   1. état + raccourcis DOM
-//   2. helpers (toasts, boutons occupés)
+// Logique principale de l'interface. Organisation :
+//   1. état
+//   2. helpers
 //   3. liste des musiques
-//   4. ajout d'un lien
-//   5. fenêtre "Modifier"
+//   4. file d'attente (le code est dans queue.js)
+//   5. fenêtre "Modifier" (+ recadrage, code dans cropper.js)
 //   6. fenêtre "Réglages"
 //   7. démarrage
 
-import { api } from "./api.js";
+import { api, cropApi } from "./api.js";
+import { openCropper } from "./cropper.js";
+import { initQueue } from "./queue.js";
+import { $, toast, withBusy } from "./ui.js";
 
 // ---------------------------------------------------------------- 1. État
 const state = {
@@ -15,40 +18,10 @@ const state = {
   editing: null,     // musique ouverte dans la fenêtre "Modifier"
 };
 
-const $ = (selector) => document.querySelector(selector);
-
 // Champs éditables : doivent correspondre à TrackTags dans lofima/models.py
 const TAG_FIELDS = ["title", "artist", "album", "album_artist", "year", "track_number", "genre", "comment"];
 
 // ---------------------------------------------------------------- 2. Helpers
-
-/** Affiche une notification qui disparaît seule. type = "info" | "error" */
-function toast(message, type = "info") {
-  const el = document.createElement("div");
-  el.className = `toast ${type}`;
-  el.textContent = message;
-  $("#toasts").append(el);
-  setTimeout(() => el.remove(), type === "error" ? 8000 : 3500);
-}
-
-/**
- * Désactive un bouton pendant une action async et affiche un libellé d'attente.
- * Évite les doubles clics (ex : lancer deux fois le même téléchargement).
- */
-async function withBusy(button, busyLabel, action) {
-  const original = button.textContent;
-  button.disabled = true;
-  button.textContent = busyLabel;
-  try {
-    return await action();
-  } catch (error) {
-    toast(error.message, "error");
-    return undefined;
-  } finally {
-    button.disabled = false;
-    button.textContent = original;
-  }
-}
 
 /** Formate une durée en secondes -> "3:07" */
 function formatDuration(seconds) {
@@ -139,30 +112,19 @@ function playTrack(track) {
   player.play();
 }
 
-// ---------------------------------------------------------------- 4. Ajout
+// ---------------------------------------------------------------- 4. File d'attente
 
-function setAddStatus(message) {
-  const status = $("#add-status");
-  status.hidden = !message;
-  status.textContent = message || "";
+/** Appelé par queue.js quand un téléchargement de la file se termine avec succès. */
+async function onTrackAdded(job) {
+  await loadTracks();
+  toast(`Ajouté : ${job.title || job.url}`);
 }
 
-async function onAddSubmit(event) {
-  event.preventDefault();
-  const input = $("#add-url");
-  const url = input.value.trim();
-  if (!url) return;
-
-  setAddStatus("Téléchargement en cours… (peut prendre quelques dizaines de secondes)");
-  const track = await withBusy($("#add-submit"), "…", () => api.addTrack(url));
-  setAddStatus("");
-
-  if (track) {
-    input.value = "";
-    upsertTrack(track);
-    toast(`Ajouté : ${track.tags.artist} - ${track.tags.title}`);
-    openEdit(track); // on propose directement de vérifier/corriger les métadonnées
-  }
+/** Ouvre la fenêtre "Modifier" à partir d'un id (bouton "Modifier" de la file). */
+function openEditById(trackId) {
+  const track = state.tracks.find((t) => t.id === trackId);
+  if (track) openEdit(track);
+  else toast("Musique introuvable (supprimée ?)", "error");
 }
 
 // ---------------------------------------------------------------- 5. Modifier
@@ -175,6 +137,9 @@ function openEdit(track) {
   const cover = $("#edit-cover");
   cover.src = track.has_cover ? api.coverUrl(track) : "";
   cover.classList.toggle("placeholder", !track.has_cover);
+
+  // Recadrer : possible s'il existe une image (d'origine, pochette ou miniature YouTube)
+  $("#edit-crop").disabled = !(track.has_cover_source || track.has_cover || track.source.thumbnail_url);
 
   renderSource(track.source);
   $("#edit-export").disabled = !track.has_audio;
@@ -239,6 +204,27 @@ async function onCoverSelected(event) {
   try {
     refreshEditing(await api.uploadCover(state.editing.id, file));
     toast("Pochette mise à jour");
+  } catch (error) {
+    toast(error.message, "error");
+  }
+}
+
+async function onCrop(event) {
+  const track = state.editing;
+  const button = event.currentTarget;
+  // withBusy : le chargement de l'image d'origine peut prendre un instant
+  const result = await withBusy(button, "Chargement…", () =>
+    openCropper(cropApi.sourceUrl(track), track.cover_crop).catch(() => {
+      // decode() échoue si le serveur renvoie une erreur au lieu d'une image
+      throw new Error("Impossible de charger l'image d'origine.");
+    }),
+  );
+  if (result === null || result === undefined) return; // annulé ou erreur (déjà affichée)
+
+  try {
+    const updated = result === "auto" ? await cropApi.reset(track.id) : await cropApi.apply(track.id, result);
+    refreshEditing(updated);
+    toast("Pochette recadrée");
   } catch (error) {
     toast(error.message, "error");
   }
@@ -324,12 +310,13 @@ async function onSyncAll(event) {
 // ---------------------------------------------------------------- 7. Démarrage
 
 function bindEvents() {
-  $("#add-form").addEventListener("submit", onAddSubmit);
+  initQueue({ onTrackAdded, onEdit: openEditById });
   $("#search").addEventListener("input", renderTracks);
 
   $("#edit-form").addEventListener("submit", onEditSave);
   $("#edit-cancel").addEventListener("click", () => $("#edit-dialog").close());
   $("#edit-cover-input").addEventListener("change", onCoverSelected);
+  $("#edit-crop").addEventListener("click", onCrop);
   $("#edit-redownload").addEventListener("click", onRedownload);
   $("#edit-export").addEventListener("click", onExport);
   $("#edit-remove").addEventListener("click", () => onDelete(true));

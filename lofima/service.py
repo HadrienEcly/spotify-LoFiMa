@@ -9,7 +9,8 @@ Cycle de vie d'une musique :
     lien YouTube
       -> fetch_info (métadonnées)            -> archive/metadata/<id>.json
       -> download_audio (mp3)                -> archive/audio/<id>.mp3
-      -> miniature (jpg carré)               -> archive/covers/<id>.jpg
+      -> miniature d'origine                 -> archive/covers/<id>.source.jpg
+      -> pochette recadrée (carrée)          -> archive/covers/<id>.jpg
       -> write_tags (tags ID3 + pochette dans le mp3 de l'archive)
       -> export (copie "Artiste - Titre.mp3") -> dossier Spotify
 """
@@ -24,9 +25,10 @@ from typing import Callable
 from . import covers, metadata, tagger
 from .config import Settings, SettingsStore
 from .downloader import Downloader
-from .errors import DownloadError, LofimaError, TrackAlreadyExistsError
+from .errors import DownloadError, InvalidCoverError, LofimaError, TrackAlreadyExistsError
 from .exporter import Exporter, LocalFolderExporter, safe_filename
-from .models import Track, TrackTagsUpdate, TrackView
+from .models import CropBox, JobStatus, Track, TrackTagsUpdate, TrackView
+from .progress import NULL_REPORTER, ProgressReporter
 from .repository import TrackRepository
 
 
@@ -75,7 +77,17 @@ class LibraryService:
         return self._audio_dir / f"{track_id}.mp3"
 
     def cover_path(self, track_id: str) -> Path:
+        """Pochette finale (recadrée), intégrée dans le mp3."""
         return self._covers_dir / f"{track_id}.jpg"
+
+    def cover_source_path(self, track_id: str) -> Path:
+        """Image d'origine non recadrée, conservée pour pouvoir recadrer plus tard."""
+        return self._covers_dir / f"{track_id}.source.jpg"
+
+    def _delete_files(self, track_id: str) -> None:
+        """Supprime le mp3 et les images de l'archive (pas le JSON)."""
+        for path in (self.audio_path(track_id), self.cover_path(track_id), self.cover_source_path(track_id)):
+            path.unlink(missing_ok=True)
 
     def _settings(self) -> Settings:
         return self._settings_store.load()
@@ -97,6 +109,7 @@ class LibraryService:
             **track.model_dump(),
             has_audio=self.audio_path(track.id).exists(),
             has_cover=self.cover_path(track.id).exists(),
+            has_cover_source=self.cover_source_path(track.id).exists(),
             is_exported=self._exporter().exists(track.exported_filename),
         )
 
@@ -114,13 +127,18 @@ class LibraryService:
     # Ajout
     # ------------------------------------------------------------------ #
 
-    def add_from_url(self, url: str) -> TrackView:
-        """Télécharge une vidéo et l'ajoute à la bibliothèque. Étape la plus longue."""
+    def add_from_url(self, url: str, reporter: ProgressReporter = NULL_REPORTER) -> TrackView:
+        """
+        Télécharge une vidéo et l'ajoute à la bibliothèque. Étape la plus longue.
+        :param reporter: reçoit l'avancement (utilisé par la file d'attente, jobs.py)
+        """
         url = url.strip()
         if not url:
             raise DownloadError("Le lien est vide.")
 
+        reporter.step(JobStatus.FETCHING_INFO)
         info = self._downloader.fetch_info(url)
+        reporter.set_title(info.get("title") or url)
         source = metadata.build_source_info(info, url)
         track_id = f"{source.extractor}-{source.video_id}"
         if self._repo.exists(track_id):
@@ -129,33 +147,45 @@ class LibraryService:
         track = Track(id=track_id, source=source, tags=metadata.guess_tags(info))
 
         try:
-            self._download_files(track)
+            self._download_files(track, reporter)
+            reporter.step(JobStatus.FINALIZING)
             with self._lock:
                 self._apply_tags_and_export(track)
                 self._repo.save(track)
         except Exception:
             # Échec en cours de route : on ne laisse pas de fichiers orphelins.
-            self.audio_path(track_id).unlink(missing_ok=True)
-            self.cover_path(track_id).unlink(missing_ok=True)
+            self._delete_files(track_id)
             raise
         return self.to_view(track)
 
-    def _download_files(self, track: Track) -> None:
+    def _download_files(self, track: Track, reporter: ProgressReporter = NULL_REPORTER) -> None:
         """Télécharge le mp3 et la miniature dans l'archive."""
         settings = self._settings()
         self._downloader.download_audio(
             track.source.url,
             self._audio_dir / track.id,  # sans extension, yt-dlp ajoute ".mp3"
             settings.audio_quality_kbps,
+            reporter,
         )
         if track.source.thumbnail_url:
             try:
                 raw = self._fetch_image(track.source.thumbnail_url)
-                covers.process_cover(raw, self.cover_path(track.id), settings.crop_cover_square)
+                covers.save_source(raw, self.cover_source_path(track.id))
+                # On réapplique le cadrage déjà choisi (cas d'un re-téléchargement)
+                self._render_cover(track)
             except LofimaError:
                 # Une miniature manquante ne doit pas faire échouer tout l'ajout :
                 # l'utilisateur pourra en envoyer une depuis l'UI.
                 pass
+
+    def _render_cover(self, track: Track) -> None:
+        """(Re)génère la pochette finale depuis l'image d'origine et le cadrage du track."""
+        covers.render_cover(
+            self.cover_source_path(track.id),
+            self.cover_path(track.id),
+            crop=track.cover_crop,
+            square=self._settings().crop_cover_square,
+        )
 
     def _apply_tags_and_export(self, track: Track) -> None:
         """Écrit les tags dans le mp3 de l'archive puis le copie vers le dossier Spotify."""
@@ -185,12 +215,58 @@ class LibraryService:
         """Remplace la pochette par une image envoyée par l'utilisateur."""
         with self._lock:
             track = self._repo.get(track_id)
-            covers.process_cover(raw_image, self.cover_path(track_id), self._settings().crop_cover_square)
+            covers.save_source(raw_image, self.cover_source_path(track_id))
+            track.cover_crop = None  # nouvelle image -> l'ancien cadrage n'a plus de sens
+            self._render_cover(track)
             track.touch()
             if self.audio_path(track_id).exists():
                 self._apply_tags_and_export(track)
             self._repo.save(track)
         return self.to_view(track)
+
+    def set_cover_crop(self, track_id: str, crop: CropBox | None) -> TrackView:
+        """
+        Recadre la pochette depuis l'image d'origine.
+        :param crop: zone à garder, ou None pour revenir au cadrage automatique
+        """
+        with self._lock:
+            track = self._repo.get(track_id)
+            self._ensure_cover_source(track)
+            track.cover_crop = crop
+            self._render_cover(track)
+            track.touch()
+            if self.audio_path(track_id).exists():
+                self._apply_tags_and_export(track)
+            self._repo.save(track)
+        return self.to_view(track)
+
+    def ensure_cover_source(self, track_id: str) -> Path:
+        """Chemin de l'image d'origine, recréée si besoin (affichage dans l'outil de recadrage)."""
+        with self._lock:
+            self._ensure_cover_source(self._repo.get(track_id))
+        return self.cover_source_path(track_id)
+
+    def _ensure_cover_source(self, track: Track) -> None:
+        """
+        Garantit que l'image d'origine existe (les musiques ajoutées avant cette
+        fonctionnalité n'en ont pas). Ordre d'essai :
+          1. re-télécharger la miniature YouTube ;
+          2. sinon, utiliser la pochette actuelle comme image d'origine.
+        """
+        source = self.cover_source_path(track.id)
+        if source.exists():
+            return
+        if track.source.thumbnail_url:
+            try:
+                covers.save_source(self._fetch_image(track.source.thumbnail_url), source)
+                return
+            except LofimaError:
+                pass  # on tente la solution de repli ci-dessous
+        cover = self.cover_path(track.id)
+        if cover.exists():
+            covers.save_source(cover.read_bytes(), source)
+            return
+        raise InvalidCoverError("Aucune image disponible : envoie d'abord une pochette.")
 
     # ------------------------------------------------------------------ #
     # Suppression
@@ -211,8 +287,7 @@ class LibraryService:
                 track.touch()
                 self._repo.save(track)
             else:
-                self.audio_path(track_id).unlink(missing_ok=True)
-                self.cover_path(track_id).unlink(missing_ok=True)
+                self._delete_files(track_id)
                 self._repo.delete(track_id)
 
     # ------------------------------------------------------------------ #

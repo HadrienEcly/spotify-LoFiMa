@@ -24,7 +24,8 @@ from .errors import (
     TrackAlreadyExistsError,
     TrackNotFoundError,
 )
-from .models import AddTrackRequest, TrackTagsUpdate, TrackView
+from .jobs import JobQueue
+from .models import AddJobsRequest, AddTrackRequest, CropBox, Job, TrackTagsUpdate, TrackView
 from .service import LibraryService
 
 # Taille max d'une pochette envoyée (évite de saturer la mémoire avec un énorme fichier)
@@ -39,7 +40,7 @@ _ERROR_STATUS: dict[type[LofimaError], int] = {
 }
 
 
-def create_app(service: LibraryService, settings_store: SettingsStore) -> FastAPI:
+def create_app(service: LibraryService, settings_store: SettingsStore, job_queue: JobQueue) -> FastAPI:
     """Construit l'application. Les dépendances sont injectées (tests = faux service)."""
     app = FastAPI(title="LoFiMa - Local File Manager")
 
@@ -56,6 +57,7 @@ def create_app(service: LibraryService, settings_store: SettingsStore) -> FastAP
 
     @app.post("/api/tracks", response_model=TrackView, status_code=201)
     def add_track(body: AddTrackRequest):
+        """Ajout SYNCHRONE (attend la fin du téléchargement). L'UI utilise plutôt /api/jobs."""
         return service.add_from_url(body.url)
 
     @app.get("/api/tracks/{track_id}", response_model=TrackView)
@@ -79,6 +81,29 @@ def create_app(service: LibraryService, settings_store: SettingsStore) -> FastAP
     def redownload_track(track_id: str):
         return service.redownload(track_id)
 
+    # ------------------------- File d'attente --------------------------- #
+
+    @app.get("/api/jobs", response_model=list[Job])
+    def list_jobs():
+        return job_queue.list()
+
+    @app.post("/api/jobs", response_model=list[Job], status_code=202)
+    def add_jobs(body: AddJobsRequest):
+        """Ajoute des liens à la file ; répond tout de suite (202 = accepté, traité plus tard)."""
+        jobs = job_queue.submit(body.urls)
+        if not jobs:
+            raise HTTPException(status_code=422, detail="Aucun lien fourni.")
+        return jobs
+
+    @app.delete("/api/jobs/{job_id}", status_code=204)
+    def remove_job(job_id: str):
+        if not job_queue.remove(job_id):
+            raise HTTPException(status_code=409, detail="Ce téléchargement est en cours ou introuvable.")
+
+    @app.post("/api/jobs/clear")
+    def clear_finished_jobs():
+        return {"removed": job_queue.clear_finished()}
+
     # ------------------------- Fichiers (média) ------------------------- #
 
     @app.get("/api/tracks/{track_id}/cover")
@@ -95,6 +120,24 @@ def create_app(service: LibraryService, settings_store: SettingsStore) -> FastAP
         if len(raw) > MAX_COVER_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail="Image trop lourde (15 Mo max).")
         return service.replace_cover(track_id, raw)
+
+    @app.get("/api/tracks/{track_id}/cover/source")
+    def get_cover_source(track_id: str):
+        """
+        Image d'origine non recadrée (affichée dans l'outil de recadrage).
+        Pour les musiques ajoutées avant cette fonctionnalité, elle est recréée à la volée
+        (miniature YouTube re-téléchargée, sinon pochette actuelle) ; 400 si aucune image.
+        """
+        return FileResponse(service.ensure_cover_source(track_id), media_type="image/jpeg")
+
+    @app.put("/api/tracks/{track_id}/cover/crop", response_model=TrackView)
+    def crop_cover(track_id: str, body: CropBox):
+        return service.set_cover_crop(track_id, body)
+
+    @app.delete("/api/tracks/{track_id}/cover/crop", response_model=TrackView)
+    def reset_cover_crop(track_id: str):
+        """Revient au cadrage automatique (carré centré)."""
+        return service.set_cover_crop(track_id, None)
 
     @app.get("/api/tracks/{track_id}/audio")
     def get_audio(track_id: str):

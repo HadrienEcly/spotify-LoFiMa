@@ -8,6 +8,7 @@ Il est sérialisé tel quel dans `archive/metadata/<id>.json`.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -68,6 +69,23 @@ class SourceInfo(BaseModel):
     description: str = ""
 
 
+class CropBox(BaseModel):
+    """
+    Zone carrée à garder dans l'image d'origine (miniature YouTube ou image envoyée).
+
+    Les valeurs sont des FRACTIONS (0 à 1) et non des pixels : le cadrage reste valable
+    si l'image d'origine est re-téléchargée dans une autre résolution.
+      - left : position du bord gauche, en fraction de la LARGEUR de l'image
+      - top  : position du bord haut, en fraction de la HAUTEUR de l'image
+      - size : côté du carré, en fraction du PLUS PETIT côté de l'image
+               (size = 1 -> le plus grand carré possible)
+    """
+
+    left: float = Field(ge=0, le=1)
+    top: float = Field(ge=0, le=1)
+    size: float = Field(gt=0, le=1)
+
+
 class Track(BaseModel):
     """Une musique de la bibliothèque."""
 
@@ -79,6 +97,10 @@ class Track(BaseModel):
     # Nom du fichier actuellement présent dans le dossier d'export Spotify
     # (permet de le renommer/supprimer proprement si le titre change).
     exported_filename: str = ""
+
+    # Cadrage choisi par l'utilisateur. None = cadrage automatique
+    # (carré centré, ou image entière si le réglage "recadrer en carré" est désactivé).
+    cover_crop: Optional[CropBox] = None
 
     created_at: str = Field(default_factory=_now_iso)
     updated_at: str = Field(default_factory=_now_iso)
@@ -96,6 +118,7 @@ class TrackView(Track):
 
     has_audio: bool = False
     has_cover: bool = False
+    has_cover_source: bool = False  # image d'origine dispo -> recadrage possible
     is_exported: bool = False
 
 
@@ -103,3 +126,48 @@ class AddTrackRequest(BaseModel):
     """Corps de POST /api/tracks."""
 
     url: str
+
+
+# --------------------------------------------------------------------------- #
+# File d'attente des téléchargements
+# --------------------------------------------------------------------------- #
+
+class JobStatus(str, Enum):
+    """
+    Étapes d'un téléchargement, dans l'ordre. Hérite de `str` pour être
+    sérialisé en texte lisible dans le JSON ("downloading", etc.).
+    """
+
+    QUEUED = "queued"            # en attente dans la file
+    FETCHING_INFO = "fetching"   # lecture des infos de la vidéo
+    DOWNLOADING = "downloading"  # téléchargement de l'audio (progress = 0..1)
+    CONVERTING = "converting"    # conversion en mp3 par ffmpeg
+    FINALIZING = "finalizing"    # pochette, tags, export
+    DONE = "done"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+    @property
+    def is_finished(self) -> bool:
+        """True si le job ne bougera plus (terminé, en erreur ou annulé)."""
+        return self in (JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELLED)
+
+
+class Job(BaseModel):
+    """Un lien dans la file d'attente."""
+
+    id: str
+    url: str
+    status: JobStatus = JobStatus.QUEUED
+    # Avancement de l'étape en cours (0 à 1), ou None si inconnu (barre "indéterminée").
+    progress: Optional[float] = None
+    title: str = ""              # titre de la vidéo dès qu'il est connu
+    track_id: Optional[str] = None  # rempli quand le job est terminé avec succès
+    error: str = ""
+    created_at: str = Field(default_factory=_now_iso)
+
+
+class AddJobsRequest(BaseModel):
+    """Corps de POST /api/jobs : un ou plusieurs liens."""
+
+    urls: list[str]

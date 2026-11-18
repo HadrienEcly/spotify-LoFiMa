@@ -49,3 +49,20 @@ export const api = {
   coverUrl: (track) => `/api/tracks/${enc(track.id)}/cover?v=${enc(track.updated_at)}`,
   audioUrl: (track) => `/api/tracks/${enc(track.id)}/audio?v=${enc(track.updated_at)}`,
 };
+
+// ------------------------------------------------------------ File d'attente
+export const jobsApi = {
+  list: () => request("GET", "/api/jobs"),
+  // urls : tableau de liens (un élément peut contenir plusieurs liens, le serveur découpe)
+  add: (urls) => request("POST", "/api/jobs", { urls }),
+  remove: (id) => request("DELETE", `/api/jobs/${enc(id)}`),
+  clearFinished: () => request("POST", "/api/jobs/clear"),
+};
+
+// ------------------------------------------------------------ Recadrage
+export const cropApi = {
+  // crop = { left, top, size } en fractions (voir CropBox dans lofima/models.py)
+  apply: (id, crop) => request("PUT", `/api/tracks/${enc(id)}/cover/crop`, crop),
+  reset: (id) => request("DELETE", `/api/tracks/${enc(id)}/cover/crop`),
+  sourceUrl: (track) => `/api/tracks/${enc(track.id)}/cover/source?v=${enc(track.updated_at)}`,
+};

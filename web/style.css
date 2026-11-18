@@ -36,12 +36,12 @@ main { max-width: 900px; margin: 0 auto; padding: 16px 16px 96px; }
 .hint { color: var(--muted); font-size: 13px; margin: -4px 0 12px; }
 
 /* ---------- Formulaires ---------- */
-input, select {
+input, select, textarea {
   width: 100%; padding: 10px 12px;
   background: var(--surface-2); color: var(--text);
   border: 1px solid transparent; border-radius: 8px; font: inherit;
 }
-input:focus, select:focus { outline: none; border-color: var(--accent); }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
 label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 10px; }
 label > input, label > select { margin-top: 4px; }
 label.checkbox { display: flex; gap: 8px; align-items: center; color: var(--text); }
@@ -62,8 +62,32 @@ label.checkbox input { width: auto; }
 .btn.small { padding: 6px 12px; font-size: 13px; }
 
 /* ---------- Ajout ---------- */
-.add-bar { display: flex; gap: 8px; }
-.status { color: var(--accent); margin: 8px 4px 0; }
+.add-bar { display: flex; gap: 8px; align-items: flex-start; }
+.add-bar textarea { flex: 1; resize: none; min-height: 44px; line-height: 1.5; }
+.add-bar + .hint { margin: 6px 4px 0; font-size: 12px; }
+
+/* ---------- File d'attente ---------- */
+.queue { margin-top: 20px; background: var(--surface); border-radius: var(--radius); padding: 12px 14px; }
+.queue-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.queue-header h2 { font-size: 14px; margin: 0; color: var(--muted); font-weight: 600; }
+#queue-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.job { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; }
+.job-text { display: flex; flex-direction: column; min-width: 0; }
+.job-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.job-status { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job .progress { grid-column: 1; }
+.job-action { grid-column: 2; grid-row: 1 / span 2; }
+
+/* Barre de progression : .progress = rail gris, .progress-fill = partie remplie */
+.progress { height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; position: relative; }
+.progress-fill { height: 100%; width: 0; background: var(--accent); border-radius: inherit; transition: width .4s ease; }
+.job[data-status="queued"] .progress-fill { background: transparent; }
+.job[data-status="failed"] .progress-fill,
+.job[data-status="cancelled"] .progress-fill { background: var(--danger); }
+.job[data-status="failed"] .job-status { color: var(--danger); }
+/* Avancement inconnu : un segment qui va et vient */
+.progress.indeterminate .progress-fill { width: 30%; position: absolute; animation: indeterminate 1.2s ease-in-out infinite; }
+@keyframes indeterminate { from { left: -30%; } to { left: 100%; } }
 
 /* ---------- Liste ---------- */
 .list-header { display: flex; gap: 12px; align-items: center; margin: 24px 0 8px; }
@@ -102,6 +126,7 @@ dialog h2 { margin: 0 0 16px; font-size: 18px; }
 .edit-grid { display: grid; grid-template-columns: 200px 1fr; gap: 20px; }
 .cover-box { display: flex; flex-direction: column; gap: 8px; align-items: center; }
 .cover-box label { margin: 0; color: var(--text); text-align: center; }
+.cover-buttons { display: flex; gap: 6px; }
 #edit-cover { width: 200px; height: 200px; border-radius: 8px; object-fit: cover; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
@@ -115,6 +140,26 @@ dialog h2 { margin: 0 0 16px; font-size: 18px; }
 .actions { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .actions .left, .actions .right { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
+/* ---------- Recadrage ---------- */
+.crop-dialog { width: min(860px, calc(100% - 32px)); }
+.crop-layout { display: flex; gap: 20px; align-items: flex-start; }
+/* La zone centre le cadre ; le cadre (.crop-frame) épouse EXACTEMENT l'image affichée,
+   pour que les coordonnées du carré correspondent à l'image (voir cropper.js). */
+.crop-stage { flex: 1; min-width: 0; display: flex; justify-content: center; }
+.crop-frame {
+  position: relative; line-height: 0; overflow: hidden; border-radius: 8px;
+  user-select: none;
+  touch-action: none; /* sur mobile : le doigt déplace le carré au lieu de faire défiler */
+}
+#crop-image { display: block; max-width: 100%; max-height: 60vh; width: auto; height: auto; }
+.crop-box {
+  position: absolute; cursor: move; border: 2px solid #fff; border-radius: 2px;
+  /* Ombre géante = assombrit tout ce qui est HORS du carré */
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .6);
+}
+.crop-side { width: 160px; display: flex; flex-direction: column; gap: 12px; }
+#crop-preview { width: 160px; height: 160px; border-radius: 6px; background: var(--surface-2); }
+
 /* ---------- Notifications ---------- */
 .toasts { position: fixed; top: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 10; }
 .toast {
@@ -126,5 +171,8 @@ dialog h2 { margin: 0 0 16px; font-size: 18px; }
 /* ---------- Mobile ---------- */
 @media (max-width: 600px) {
   .edit-grid { grid-template-columns: 1fr; }
-  .add-bar { flex-direction: column; }
+  .add-bar { flex-direction: column; align-items: stretch; }
+  .crop-layout { flex-direction: column; }
+  .crop-side { width: 100%; flex-direction: row; align-items: center; }
+  #crop-preview { width: 96px; height: 96px; }
 }
