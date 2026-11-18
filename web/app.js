@@ -1,14 +1,17 @@
 // Logique principale de l'interface. Organisation :
 //   1. état
 //   2. helpers
-//   3. liste des musiques
+//   3. liste des musiques (+ téléchargement sur l'appareil)
 //   4. file d'attente (le code est dans queue.js)
 //   5. fenêtre "Modifier" (+ recadrage, code dans cropper.js)
-//   6. fenêtre "Réglages"
+//   6. fenêtre "Réglages" (+ accès téléphone, code dans pairing.js)
 //   7. démarrage
+// L'appareil courant (nom, mode) est géré par devices.js.
 
 import { api, cropApi } from "./api.js";
 import { openCropper } from "./cropper.js";
+import { initDevice, isDownloadMode } from "./devices.js";
+import { initPairing, renderPairing } from "./pairing.js";
 import { initQueue } from "./queue.js";
 import { $, toast, withBusy } from "./ui.js";
 
@@ -77,6 +80,11 @@ function renderTracks() {
 
       node.querySelector(".badges").append(...buildBadges(track));
 
+      const download = node.querySelector(".download");
+      download.hidden = !isDownloadMode();
+      download.disabled = !track.has_audio;
+      download.addEventListener("click", () => downloadTrack(track));
+
       const play = node.querySelector(".play");
       play.disabled = !track.has_audio;
       play.addEventListener("click", () => playTrack(track));
@@ -87,6 +95,47 @@ function renderTracks() {
 
   $("#count").textContent = `${visible.length} / ${state.tracks.length} musique(s)`;
   $("#empty").hidden = state.tracks.length > 0;
+  renderFetchBar();
+}
+
+// ---- Récupération sur l'appareil (mode "téléchargement") ----
+
+/** Musiques à récupérer : nouvelles ou modifiées depuis le dernier téléchargement. */
+function tracksToFetch() {
+  return state.tracks.filter(
+    (t) => t.has_audio && (t.device_state === "new" || t.device_state === "outdated"),
+  );
+}
+
+/** Barre "N musiques à récupérer" (masquée si rien à faire ou mode dossier du PC). */
+function renderFetchBar() {
+  const pending = isDownloadMode() ? tracksToFetch() : [];
+  $("#fetch-bar").hidden = pending.length === 0;
+  $("#fetch-count").textContent = `${pending.length} musique(s) à récupérer sur cet appareil`;
+}
+
+/**
+ * Déclenche le téléchargement d'une musique par le navigateur.
+ * On simule un clic sur un lien <a download> : Safari/Chrome enregistrent alors le
+ * fichier au lieu de l'ouvrir. Le serveur note au passage que cet appareil l'a récupérée.
+ *
+ * Un fichier par clic (bouton "Télécharger la suivante") : les navigateurs, surtout
+ * Safari iOS, bloquent les téléchargements multiples qui ne viennent pas d'un clic.
+ */
+function downloadTrack(track) {
+  const link = document.createElement("a");
+  link.href = api.downloadUrl(track);
+  link.download = ""; // le nom vient du serveur (en-tête Content-Disposition)
+  document.body.append(link);
+  link.click();
+  link.remove();
+  // Le serveur met à jour le suivi pendant le téléchargement : on rafraîchit un peu après
+  setTimeout(loadTracks, 1500);
+}
+
+function onFetchNext() {
+  const [next] = tracksToFetch();
+  if (next) downloadTrack(next);
 }
 
 /** Petites étiquettes d'état : exporté vers Spotify ? mp3 présent dans l'archive ? */
@@ -99,8 +148,16 @@ function buildBadges(track) {
     span.title = title;
     return span;
   };
-  if (track.is_exported) badges.push(make("Spotify", "ok", `Fichier : ${track.exported_filename}`));
-  else badges.push(make("Non exporté", "warn", "Pas dans le dossier Spotify"));
+  if (isDownloadMode()) {
+    // Badge selon ce que CET appareil a déjà récupéré
+    if (track.device_state === "new") badges.push(make("Nouveau", "warn", "Pas encore sur cet appareil"));
+    if (track.device_state === "outdated") badges.push(make("Modifié", "warn", "Modifié depuis ton téléchargement"));
+    if (track.device_state === "downloaded") badges.push(make("Sur l'appareil", "ok", "Déjà récupéré"));
+  } else if (track.is_exported) {
+    badges.push(make("Spotify", "ok", `Fichier : ${track.exported_filename}`));
+  } else {
+    badges.push(make("Non exporté", "warn", "Pas dans le dossier Spotify"));
+  }
   if (!track.has_audio) badges.push(make("mp3 manquant", "warn", "Utilise « Re-télécharger »"));
   return badges;
 }
@@ -275,7 +332,9 @@ async function openSettings() {
     form.elements.export_dir.value = settings.export_dir;
     form.elements.audio_quality_kbps.value = String(settings.audio_quality_kbps);
     form.elements.crop_cover_square.checked = settings.crop_cover_square;
+    form.elements.lan_access.checked = settings.lan_access;
     $("#settings-dialog").showModal();
+    renderPairing(); // QR code + appareils (chargés après l'ouverture, non bloquant)
   } catch (error) {
     toast(error.message, "error");
   }
@@ -289,9 +348,13 @@ async function onSettingsSave(event) {
       export_dir: form.elements.export_dir.value.trim(),
       audio_quality_kbps: Number(form.elements.audio_quality_kbps.value),
       crop_cover_square: form.elements.crop_cover_square.checked,
+      lan_access: form.elements.lan_access.checked,
     });
-    $("#settings-dialog").close();
     toast("Réglages enregistrés. Pense à « Resynchroniser tout » si tu as changé de dossier.");
+    // Si l'accès téléphone a changé, la fenêtre reste ouverte pour afficher
+    // le message "relance l'appli" ; sinon on la ferme.
+    await renderPairing();
+    if ($("#pairing-restart").hidden) $("#settings-dialog").close();
     await loadTracks(); // le statut "exporté" dépend du dossier
   } catch (error) {
     toast(error.message, "error");
@@ -326,7 +389,19 @@ function bindEvents() {
   $("#settings-form").addEventListener("submit", onSettingsSave);
   $("#settings-cancel").addEventListener("click", () => $("#settings-dialog").close());
   $("#sync-all").addEventListener("click", onSyncAll);
+  $("#fetch-next").addEventListener("click", onFetchNext);
+  initPairing();
 }
 
-bindEvents();
-loadTracks();
+/** Démarrage : l'appareil d'abord (la liste s'affiche différemment selon son mode). */
+async function start() {
+  bindEvents();
+  try {
+    await initDevice(loadTracks); // changer de mode recharge la liste
+  } catch (error) {
+    toast(`Appareil : ${error.message}`, "error");
+  }
+  await loadTracks();
+}
+
+start();

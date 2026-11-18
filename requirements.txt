@@ -8,3 +8,5 @@ yt-dlp>=2024.10.0
 mutagen>=1.47
 # Recadrage / conversion des pochettes
 pillow>=10.0
+# QR code de connexion du téléphone
+qrcode>=7.4

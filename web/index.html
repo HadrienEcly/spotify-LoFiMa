@@ -11,7 +11,12 @@
 <body>
   <header class="topbar">
     <h1>LoFiMa <small>YouTube → Spotify local files</small></h1>
-    <button id="open-settings" class="btn ghost" title="Réglages">⚙ Réglages</button>
+    <div class="topbar-buttons">
+      <!-- Nom de l'appareil courant : ouvre la fenêtre "Cet appareil" (devices.js) -->
+      <button id="open-device" class="btn ghost" title="Cet appareil">📱 <span id="device-name">…</span></button>
+      <!-- Réglages : réservé au PC (masqué sur les autres appareils) -->
+      <button id="open-settings" class="btn ghost" title="Réglages" hidden>⚙ Réglages</button>
+    </div>
   </header>
 
   <main>
@@ -32,7 +37,17 @@
       <ul id="queue-list"></ul>
     </section>
 
-    <!-- 3. Bibliothèque -->
+    <!-- 3. À récupérer : uniquement pour un appareil en mode "téléchargement" -->
+    <section id="fetch-bar" class="fetch-bar" hidden>
+      <div>
+        <strong id="fetch-count"></strong>
+        <p class="hint">Les fichiers vont dans le dossier de téléchargement du navigateur
+          (iPhone : Réglages › Apps › Safari › Téléchargements).</p>
+      </div>
+      <button id="fetch-next" class="btn primary">Télécharger la suivante</button>
+    </section>
+
+    <!-- 4. Bibliothèque -->
     <div class="list-header">
       <input id="search" type="search" placeholder="Rechercher titre, artiste, album…">
       <span id="count" class="muted"></span>
@@ -140,6 +155,30 @@
       </label>
       <label class="checkbox"><input type="checkbox" name="crop_cover_square"> Recadrer la miniature en carré</label>
 
+      <!-- Accès depuis le téléphone (rempli par pairing.js) -->
+      <fieldset class="pairing">
+        <legend>Accès depuis le téléphone</legend>
+        <label class="checkbox"><input type="checkbox" name="lan_access">
+          Autoriser les appareils du Wi-Fi (avec le code d'accès)</label>
+        <p id="pairing-restart" class="warning" hidden>
+          Relance l'appli (ferme la fenêtre puis start.bat) pour appliquer ce changement.
+          Windows peut demander d'autoriser Python : coche « Réseaux privés ».
+        </p>
+        <div id="pairing-details" class="pairing-details" hidden>
+          <div id="pairing-qr" class="pairing-qr"></div>
+          <div class="pairing-text">
+            <p>Scanne ce QR code avec l'appareil photo de l'iPhone (même Wi-Fi que le PC).</p>
+            <p class="hint">Ou ouvre <a id="pairing-url" target="_blank" rel="noopener"></a></p>
+            <button type="button" id="pairing-regenerate" class="btn ghost small"
+                    title="Les appareils déjà connectés devront rescanner le QR code">
+              Régénérer le code
+            </button>
+          </div>
+        </div>
+        <h3>Appareils connus</h3>
+        <ul id="device-list" class="device-list"></ul>
+      </fieldset>
+
       <div class="actions">
         <div class="left">
           <button type="button" id="sync-all" class="btn ghost small"
@@ -149,6 +188,29 @@
         </div>
         <div class="right">
           <button type="button" id="settings-cancel" class="btn ghost">Fermer</button>
+          <button type="submit" class="btn primary">Enregistrer</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Fenêtre : réglages de l'appareil courant (devices.js) -->
+  <dialog id="device-dialog">
+    <form id="device-form" method="dialog">
+      <h2>Cet appareil</h2>
+      <label>Nom <input name="name" required maxlength="40"></label>
+      <p class="label">Comment cet appareil récupère les musiques ?</p>
+      <label class="checkbox"><input type="radio" name="mode" value="export_folder">
+        Dossier d'export du PC (copie automatique, pour le Spotify du PC)</label>
+      <label class="checkbox"><input type="radio" name="mode" value="download">
+        Téléchargement sur cet appareil (iPhone : dans l'app Fichiers)</label>
+      <p class="hint">En mode téléchargement, l'appli retient ce que cet appareil a déjà récupéré
+        et affiche les nouveautés. Sur iPhone, choisis le dossier lu par Spotify dans
+        Réglages › Apps › Safari › Téléchargements.</p>
+      <div class="actions">
+        <div class="left"></div>
+        <div class="right">
+          <button type="button" id="device-cancel" class="btn ghost">Fermer</button>
           <button type="submit" class="btn primary">Enregistrer</button>
         </div>
       </div>
@@ -181,6 +243,8 @@
       </div>
       <div class="track-actions">
         <button class="btn ghost small play" title="Écouter">▶</button>
+        <!-- Visible uniquement en mode téléchargement -->
+        <button class="btn ghost small download" title="Télécharger sur cet appareil" hidden>⬇</button>
         <button class="btn ghost small edit">Modifier</button>
       </div>
     </li>

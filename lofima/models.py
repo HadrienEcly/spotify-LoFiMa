@@ -15,8 +15,12 @@ from pydantic import BaseModel, Field
 
 
 def _now_iso() -> str:
-    """Date/heure actuelle en ISO 8601 (UTC), utilisée pour created_at / updated_at."""
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    """
+    Date/heure actuelle en ISO 8601 (UTC), utilisée pour created_at / updated_at.
+    Précision à la microseconde : `updated_at` sert de numéro de version (suivi par
+    appareil), deux modifications dans la même seconde doivent rester distinctes.
+    """
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
 class TrackTags(BaseModel):
@@ -120,6 +124,9 @@ class TrackView(Track):
     has_cover: bool = False
     has_cover_source: bool = False  # image d'origine dispo -> recadrage possible
     is_exported: bool = False
+    # État pour l'appareil qui fait la requête, s'il est en mode "téléchargement" :
+    # "new" | "outdated" | "downloaded" (voir DownloadState dans devices.py). None sinon.
+    device_state: Optional[str] = None
 
 
 class AddTrackRequest(BaseModel):

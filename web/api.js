@@ -48,6 +48,8 @@ export const api = {
   // recharger l'image quand la musique est modifiée (cache-busting).
   coverUrl: (track) => `/api/tracks/${enc(track.id)}/cover?v=${enc(track.updated_at)}`,
   audioUrl: (track) => `/api/tracks/${enc(track.id)}/audio?v=${enc(track.updated_at)}`,
+  // Téléchargement (le serveur retient que cet appareil a récupéré la musique)
+  downloadUrl: (track) => `/api/tracks/${enc(track.id)}/download`,
 };
 
 // ------------------------------------------------------------ File d'attente
@@ -65,4 +67,17 @@ export const cropApi = {
   apply: (id, crop) => request("PUT", `/api/tracks/${enc(id)}/cover/crop`, crop),
   reset: (id) => request("DELETE", `/api/tracks/${enc(id)}/cover/crop`),
   sourceUrl: (track) => `/api/tracks/${enc(track.id)}/cover/source?v=${enc(track.updated_at)}`,
+};
+
+// ------------------------------------------------------------ Appareils & accès
+export const deviceApi = {
+  me: () => request("GET", "/api/me"),                  // { device, is_local }
+  updateMe: (changes) => request("PATCH", "/api/me", changes), // { name?, mode? }
+  list: () => request("GET", "/api/devices"),            // PC uniquement
+  remove: (id) => request("DELETE", `/api/devices/${enc(id)}`),
+};
+
+export const pairingApi = {
+  get: () => request("GET", "/api/pairing"),             // PC uniquement
+  regenerate: () => request("POST", "/api/pairing/regenerate"),
 };

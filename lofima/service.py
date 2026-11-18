@@ -97,7 +97,7 @@ class LibraryService:
         return self._exporter_factory(self._settings())
 
     @staticmethod
-    def _export_name(track: Track) -> str:
+    def export_name(track: Track) -> str:
         """Nom du fichier dans le dossier Spotify : "Artiste - Titre.mp3"."""
         tags = track.tags
         stem = f"{tags.artist} - {tags.title}" if tags.artist else (tags.title or track.id)
@@ -192,7 +192,7 @@ class LibraryService:
         mp3 = self.audio_path(track.id)
         tagger.write_tags(mp3, track.tags, self.cover_path(track.id))
         track.exported_filename = self._exporter().export(
-            mp3, self._export_name(track), previous_name=track.exported_filename
+            mp3, self.export_name(track), previous_name=track.exported_filename
         )
 
     # ------------------------------------------------------------------ #
@@ -283,8 +283,9 @@ class LibraryService:
             track = self._repo.get(track_id)
             self._exporter().remove(track.exported_filename)
             if keep_archive:
+                # Pas de touch() : le contenu de la musique n'a pas changé, les appareils
+                # qui l'ont déjà téléchargée ne doivent pas la voir comme "modifiée".
                 track.exported_filename = ""
-                track.touch()
                 self._repo.save(track)
             else:
                 self._delete_files(track_id)
@@ -300,8 +301,8 @@ class LibraryService:
             track = self._repo.get(track_id)
             if not self.audio_path(track_id).exists():
                 raise DownloadError("Le mp3 n'est pas dans l'archive : utilise « Re-télécharger ».")
+            # Pas de touch() ici non plus : un simple (ré)export ne modifie pas la musique.
             self._apply_tags_and_export(track)
-            track.touch()
             self._repo.save(track)
         return self.to_view(track)
 
@@ -312,6 +313,11 @@ class LibraryService:
         """
         track = self._repo.get(track_id)
         self._download_files(track)
+        with self._lock:
+            # Fichiers renouvelés (mp3, miniature) : nouvelle version de la musique.
+            track = self._repo.get(track_id)
+            track.touch()
+            self._repo.save(track)
         return self.export_track(track_id)
 
     def sync_all(self) -> SyncReport:

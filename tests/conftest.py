@@ -19,6 +19,7 @@ from PIL import Image
 
 from lofima.api import create_app
 from lofima.config import Settings, SettingsStore
+from lofima.devices import DeviceRegistry
 from lofima.jobs import JobQueue
 from lofima.models import JobStatus
 from lofima.progress import NULL_REPORTER
@@ -97,12 +98,23 @@ def env(tmp_path, sample_mp3):
         fetch_image=lambda url: make_image_bytes(),
     )
     job_queue = JobQueue(processor=lambda url, reporter: service.add_from_url(url, reporter).id)
-    client = TestClient(create_app(service, settings_store, job_queue))
+    devices = DeviceRegistry(tmp_path / "devices.json")
+    # Le TestClient se présente avec l'adresse "testclient" : on la traite comme le PC.
+    app = create_app(service, settings_store, job_queue, devices,
+                     local_hosts=frozenset({"testclient"}), listening_on_lan=False)
+    client = TestClient(app)
+
+    def remote_client() -> TestClient:
+        """Client qui se fait passer pour un téléphone du Wi-Fi (adresse non locale)."""
+        return TestClient(app, client=("192.168.1.50", 50000))
     return {
         "service": service,
         "client": client,
         "downloader": downloader,
         "queue": job_queue,
+        "devices": devices,
+        "settings_store": settings_store,
+        "remote_client": remote_client,
         "export_dir": export_dir,
         "tmp": tmp_path,
     }
