@@ -33,8 +33,10 @@ Choisis comme dossier d'export un dossier de **Google Drive pour ordinateur** (e
 
 | Action | Effet |
 |---|---|
-| **Ajouter** un lien | Télécharge le mp3 et la miniature, devine les métadonnées, exporte vers le dossier Spotify |
+| **Ajouter** un ou plusieurs liens (un par ligne) | Les liens rejoignent la **file d'attente**, traitée un par un avec une barre de progression. Chaque lien : mp3 + miniature, métadonnées devinées, export vers le dossier Spotify |
+| **Annuler** (file d'attente) | Retire un lien pas encore commencé |
 | **Modifier** | Corrige tags / pochette → le mp3 est retagué et renommé `Artiste - Titre.mp3` |
+| **Recadrer** | Choisit quelle partie de la miniature d'origine sert de pochette carrée. Le cadrage est mémorisé (réappliqué après un re-téléchargement). *Cadrage auto* = carré centré |
 | **Retirer de Spotify** | Supprime le fichier du dossier Spotify, **garde la sauvegarde** |
 | **Réexporter** | Remet une musique retirée dans le dossier Spotify |
 | **Re-télécharger** | Récupère à nouveau le mp3 depuis le lien d'origine (tes tags sont conservés) |
@@ -47,8 +49,11 @@ Choisis comme dossier d'export un dossier de **Google Drive pour ordinateur** (e
 archive/
   metadata/<id>.json   ← versionné dans Git (lien, infos d'origine, tags modifiés)
   audio/<id>.mp3       ← ignoré par Git (lourd + droits d'auteur)
-  covers/<id>.jpg      ← ignoré par Git
+  covers/<id>.jpg         ← pochette finale, ignorée par Git
+  covers/<id>.source.jpg  ← miniature d'origine non recadrée, ignorée par Git
 ```
+La file d'attente est en mémoire : si tu fermes l'appli, les liens pas encore traités sont perdus (les musiques terminées, elles, sont bien sauvegardées).
+
 Pense à **commit `archive/metadata/`** régulièrement. Sur un nouveau PC : clone le dépôt, lance l'app, puis *Resynchroniser tout*.
 
 ⚠️ Les mp3 ne sont **pas** dans Git : si une vidéo est supprimée de YouTube, seul ton dossier `archive/audio/` local la conserve. Sauvegarde-le (disque externe, Drive…). Garde le dépôt **privé**.
@@ -59,17 +64,23 @@ Pense à **commit `archive/metadata/`** régulièrement. Sur un nouveau PC : clo
 lofima/
   __main__.py    point d'entrée : assemble les dépendances, lance le serveur
   api.py         routes HTTP (FastAPI) — aucune logique métier
-  service.py     orchestration : ajout, modif, export, sync
+  service.py     orchestration : ajout, modif, recadrage, export, sync
+  jobs.py        file d'attente (thread d'arrière-plan, un lien à la fois)
+  progress.py    interface de remontée d'avancement (service/downloader -> file)
   downloader.py  yt-dlp (derrière une interface `Downloader`)
   metadata.py    déduction des tags depuis le titre YouTube (fonctions pures)
   tagger.py      écriture des tags ID3 v2.3 (mutagen)
-  covers.py      conversion/recadrage des pochettes (Pillow)
+  covers.py      image d'origine + rendu de la pochette recadrée (Pillow)
   exporter.py    copie vers le dossier Spotify (interface `Exporter`, extensible à Drive API)
   repository.py  stockage JSON, un fichier par musique
   config.py      chemins + réglages utilisateur (settings.json)
   models.py      modèles Pydantic (Track, TrackTags…)
   errors.py      exceptions métier → codes HTTP dans api.py
 web/             interface (HTML/CSS/JS sans framework)
+  app.js         liste, fenêtres Modifier / Réglages
+  queue.js       file d'attente + barres de progression (polling de /api/jobs)
+  cropper.js     outil de recadrage
+  api.js / ui.js client HTTP / utilitaires partagés
 tests/           pytest, hors ligne (faux downloader)
 ```
 

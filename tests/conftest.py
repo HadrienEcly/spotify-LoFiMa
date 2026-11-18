@@ -19,6 +19,9 @@ from PIL import Image
 
 from lofima.api import create_app
 from lofima.config import Settings, SettingsStore
+from lofima.jobs import JobQueue
+from lofima.models import JobStatus
+from lofima.progress import NULL_REPORTER
 from lofima.repository import TrackRepository
 from lofima.service import LibraryService
 
@@ -66,7 +69,11 @@ class FakeDownloader:
     def fetch_info(self, url: str) -> dict[str, Any]:
         return self.info
 
-    def download_audio(self, url: str, destination_stem: Path, quality_kbps: int) -> Path:
+    def download_audio(self, url, destination_stem: Path, quality_kbps: int, reporter=NULL_REPORTER) -> Path:
+        # Simule l'avancement comme le ferait yt-dlp
+        for fraction in (0.0, 0.5, 1.0):
+            reporter.step(JobStatus.DOWNLOADING, fraction)
+        reporter.step(JobStatus.CONVERTING, None)
         self.download_calls += 1
         destination = destination_stem.with_suffix(".mp3")
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -89,11 +96,13 @@ def env(tmp_path, sample_mp3):
         covers_dir=tmp_path / "archive" / "covers",
         fetch_image=lambda url: make_image_bytes(),
     )
-    client = TestClient(create_app(service, settings_store))
+    job_queue = JobQueue(processor=lambda url, reporter: service.add_from_url(url, reporter).id)
+    client = TestClient(create_app(service, settings_store, job_queue))
     return {
         "service": service,
         "client": client,
         "downloader": downloader,
+        "queue": job_queue,
         "export_dir": export_dir,
         "tmp": tmp_path,
     }

@@ -17,6 +17,7 @@ import uvicorn
 from .api import create_app
 from .config import AUDIO_DIR, COVERS_DIR, METADATA_DIR, SettingsStore, ensure_archive_dirs
 from .downloader import YtDlpDownloader
+from .jobs import JobQueue
 from .repository import TrackRepository
 from .service import LibraryService
 
@@ -32,7 +33,9 @@ def build_app():
         audio_dir=AUDIO_DIR,
         covers_dir=COVERS_DIR,
     )
-    return create_app(service, settings_store)
+    # La file appelle le service pour chaque lien ; on ne garde que l'id du résultat.
+    job_queue = JobQueue(processor=lambda url, reporter: service.add_from_url(url, reporter).id)
+    return create_app(service, settings_store, job_queue)
 
 
 def main() -> None:

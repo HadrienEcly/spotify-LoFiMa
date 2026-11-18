@@ -1,9 +1,12 @@
 """
 Traitement des pochettes (images).
 
-Utilisé à la fois pour la miniature YouTube et pour une image envoyée par l'utilisateur :
-on convertit toujours en JPEG (format le mieux supporté par les tags ID3 / Spotify)
-et on recadre en carré si demandé.
+Deux fichiers par musique (dans archive/covers/) :
+  - `<id>.source.jpg` : l'image D'ORIGINE, non recadrée (miniature YouTube 16:9 ou image
+                        envoyée). On la garde pour pouvoir recadrer autrement plus tard.
+  - `<id>.jpg`        : la pochette FINALE (carrée), intégrée dans le mp3.
+
+Flux : octets bruts --save_source()--> source.jpg --render_cover(cadrage)--> pochette.jpg
 """
 
 from __future__ import annotations
@@ -11,14 +14,18 @@ from __future__ import annotations
 import io
 import urllib.request
 from pathlib import Path
+from typing import Optional
 
 from PIL import Image, UnidentifiedImageError
 
 from .errors import DownloadError, InvalidCoverError
+from .models import CropBox
 
-# Taille max du côté de la pochette : 1000 px est largement suffisant pour Spotify
+# Taille max du côté de la pochette finale : largement suffisant pour Spotify
 # et garde des mp3 légers (la pochette est intégrée dans chaque fichier).
 MAX_COVER_SIZE = 1000
+# L'image d'origine est gardée un peu plus grande pour recadrer sans perte.
+MAX_SOURCE_SIZE = 2000
 JPEG_QUALITY = 90
 
 
@@ -32,36 +39,66 @@ def fetch_image_bytes(url: str, timeout: float = 20.0) -> bytes:
         raise DownloadError(f"Impossible de télécharger la miniature : {exc}") from exc
 
 
-def crop_to_square(image: Image.Image) -> Image.Image:
-    """Recadre l'image en carré centré (coupe les bords gauche/droite d'une image 16:9)."""
-    width, height = image.size
-    side = min(width, height)
-    left = (width - side) // 2
-    top = (height - side) // 2
-    return image.crop((left, top, left + side, top + side))
-
-
-def process_cover(raw: bytes, destination: Path, square: bool = True) -> Path:
-    """
-    Convertit des octets d'image (jpg, png, webp...) en JPEG prêt à être intégré au mp3.
-
-    :param raw: contenu brut de l'image
-    :param destination: chemin du .jpg à écrire
-    :param square: True pour recadrer en carré
-    :raises InvalidCoverError: si les octets ne sont pas une image lisible
-    """
+def _open_image(raw: bytes) -> Image.Image:
+    """Ouvre des octets d'image (jpg, png, webp...) et les convertit en RVB."""
     try:
         image = Image.open(io.BytesIO(raw))
         image.load()
     except (UnidentifiedImageError, OSError) as exc:
         raise InvalidCoverError("Le fichier fourni n'est pas une image valide.") from exc
-
     # JPEG ne gère pas la transparence ni les palettes : conversion en RVB.
-    image = image.convert("RGB")
-    if square:
-        image = crop_to_square(image)
-    image.thumbnail((MAX_COVER_SIZE, MAX_COVER_SIZE))  # réduit sans déformer
+    return image.convert("RGB")
 
+
+def _save_jpeg(image: Image.Image, destination: Path, max_size: int) -> Path:
+    image.thumbnail((max_size, max_size))  # réduit sans déformer (n'agrandit jamais)
     destination.parent.mkdir(parents=True, exist_ok=True)
     image.save(destination, format="JPEG", quality=JPEG_QUALITY)
     return destination
+
+
+def save_source(raw: bytes, destination: Path) -> Path:
+    """
+    Enregistre l'image d'origine (sans recadrage) en JPEG.
+    :raises InvalidCoverError: si les octets ne sont pas une image lisible
+    """
+    return _save_jpeg(_open_image(raw), destination, MAX_SOURCE_SIZE)
+
+
+def crop_box_to_pixels(width: int, height: int, crop: CropBox) -> tuple[int, int, int, int]:
+    """
+    Convertit un CropBox (fractions) en rectangle en pixels (gauche, haut, droite, bas).
+    Le carré est décalé si besoin pour rester entièrement dans l'image.
+    """
+    side = max(1, round(crop.size * min(width, height)))
+    left = min(round(crop.left * width), width - side)
+    top = min(round(crop.top * height), height - side)
+    left, top = max(0, left), max(0, top)
+    return left, top, left + side, top + side
+
+
+def center_square(width: int, height: int) -> CropBox:
+    """Le plus grand carré centré (cadrage automatique par défaut)."""
+    side = min(width, height)
+    return CropBox(left=(width - side) / 2 / width, top=(height - side) / 2 / height, size=1.0)
+
+
+def render_cover(
+    source: Path,
+    destination: Path,
+    crop: Optional[CropBox] = None,
+    square: bool = True,
+) -> Path:
+    """
+    Génère la pochette finale depuis l'image d'origine.
+
+    :param crop: cadrage choisi par l'utilisateur ; prioritaire sur `square`
+    :param square: si pas de cadrage choisi : True = carré centré, False = image entière
+    """
+    image = _open_image(source.read_bytes())
+    width, height = image.size
+    if crop is None and square:
+        crop = center_square(width, height)
+    if crop is not None:
+        image = image.crop(crop_box_to_pixels(width, height, crop))
+    return _save_jpeg(image, destination, MAX_COVER_SIZE)

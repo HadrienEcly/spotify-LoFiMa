@@ -15,14 +15,24 @@
   </header>
 
   <main>
-    <!-- 1. Ajout d'un lien -->
+    <!-- 1. Ajout de liens (un par ligne) -->
     <form id="add-form" class="add-bar">
-      <input id="add-url" type="url" required placeholder="Colle un lien YouTube…" autocomplete="off">
+      <textarea id="add-urls" rows="1" required
+                placeholder="Colle un ou plusieurs liens YouTube (un par ligne)…"></textarea>
       <button id="add-submit" class="btn primary" type="submit">Ajouter</button>
     </form>
-    <p id="add-status" class="status" hidden></p>
+    <p class="hint">Entrée pour ajouter · Maj+Entrée pour aller à la ligne</p>
 
-    <!-- 2. Bibliothèque -->
+    <!-- 2. File d'attente (masquée quand vide) -->
+    <section id="queue" class="queue" hidden>
+      <div class="queue-header">
+        <h2>File d'attente</h2>
+        <button id="queue-clear" class="btn ghost small">Retirer les terminés</button>
+      </div>
+      <ul id="queue-list"></ul>
+    </section>
+
+    <!-- 3. Bibliothèque -->
     <div class="list-header">
       <input id="search" type="search" placeholder="Rechercher titre, artiste, album…">
       <span id="count" class="muted"></span>
@@ -41,10 +51,13 @@
       <div class="edit-grid">
         <div class="cover-box">
           <img id="edit-cover" alt="Pochette">
-          <label class="btn ghost small">
-            Changer la pochette
-            <input id="edit-cover-input" type="file" accept="image/*" hidden>
-          </label>
+          <div class="cover-buttons">
+            <button type="button" id="edit-crop" class="btn ghost small">Recadrer</button>
+            <label class="btn ghost small">
+              Changer
+              <input id="edit-cover-input" type="file" accept="image/*" hidden>
+            </label>
+          </div>
         </div>
         <div class="fields">
           <!-- name = nom du champ dans TrackTags (models.py) -->
@@ -79,6 +92,34 @@
         </div>
       </div>
     </form>
+  </dialog>
+
+  <!-- Fenêtre : recadrage de la pochette (piloté par cropper.js) -->
+  <dialog id="crop-dialog" class="crop-dialog">
+    <h2>Recadrer la pochette</h2>
+    <p class="hint">Glisse le carré pour le déplacer · molette ou curseur pour zoomer</p>
+    <div class="crop-layout">
+      <div class="crop-stage">
+        <div id="crop-stage" class="crop-frame">
+          <img id="crop-image" alt="Image d'origine" draggable="false">
+          <div id="crop-box" class="crop-box"></div>
+        </div>
+      </div>
+      <div class="crop-side">
+        <canvas id="crop-preview" width="160" height="160"></canvas>
+        <label>Zoom <input id="crop-zoom" type="range" min="20" max="100" value="100"></label>
+      </div>
+    </div>
+    <div class="actions">
+      <div class="left">
+        <button type="button" id="crop-reset" class="btn ghost small"
+                title="Revenir au carré centré automatique">Cadrage auto</button>
+      </div>
+      <div class="right">
+        <button type="button" id="crop-cancel" class="btn ghost">Annuler</button>
+        <button type="button" id="crop-apply" class="btn primary">Appliquer</button>
+      </div>
+    </div>
   </dialog>
 
   <!-- Fenêtre : réglages -->
@@ -116,6 +157,18 @@
 
   <!-- Notifications temporaires -->
   <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <!-- Modèle d'une ligne de la file d'attente, cloné par queue.js -->
+  <template id="job-template">
+    <li class="job">
+      <div class="job-text">
+        <span class="job-title"></span>
+        <span class="job-status muted"></span>
+      </div>
+      <div class="progress"><div class="progress-fill"></div></div>
+      <button class="btn ghost small job-action"></button>
+    </li>
+  </template>
 
   <!-- Modèle HTML d'une ligne de la liste, cloné par app.js -->
   <template id="track-template">

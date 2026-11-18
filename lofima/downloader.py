@@ -17,6 +17,8 @@ from typing import Any, Protocol
 import yt_dlp
 
 from .errors import DownloadError
+from .models import JobStatus
+from .progress import NULL_REPORTER, ProgressReporter
 
 
 class Downloader(Protocol):
@@ -26,8 +28,17 @@ class Downloader(Protocol):
         """Retourne les infos de la vidéo SANS télécharger le média."""
         ...
 
-    def download_audio(self, url: str, destination_stem: Path, quality_kbps: int) -> Path:
-        """Télécharge l'audio en mp3 vers `<destination_stem>.mp3` et retourne ce chemin."""
+    def download_audio(
+        self,
+        url: str,
+        destination_stem: Path,
+        quality_kbps: int,
+        reporter: ProgressReporter = NULL_REPORTER,
+    ) -> Path:
+        """
+        Télécharge l'audio en mp3 vers `<destination_stem>.mp3` et retourne ce chemin.
+        `reporter` reçoit l'avancement (téléchargement en %, puis conversion).
+        """
         ...
 
 
@@ -56,9 +67,40 @@ class YtDlpDownloader:
             raise DownloadError("Les playlists ne sont pas supportées : colle le lien d'une seule vidéo.")
         return info
 
-    def download_audio(self, url: str, destination_stem: Path, quality_kbps: int) -> Path:
+    @staticmethod
+    def _make_hooks(reporter: ProgressReporter) -> dict[str, list]:
+        """
+        Crée les "hooks" yt-dlp : des fonctions qu'il appelle régulièrement pendant
+        le téléchargement (progress_hooks) et pendant la conversion (postprocessor_hooks).
+        Doc du dict reçu : https://github.com/yt-dlp/yt-dlp#embedding-yt-dlp
+        """
+
+        def on_download(data: dict[str, Any]) -> None:
+            if data.get("status") != "downloading":
+                return
+            # La taille totale n'est pas toujours connue -> estimation, sinon barre indéterminée
+            total = data.get("total_bytes") or data.get("total_bytes_estimate")
+            downloaded = data.get("downloaded_bytes") or 0
+            fraction = min(downloaded / total, 1.0) if total else None
+            reporter.step(JobStatus.DOWNLOADING, fraction)
+
+        def on_postprocess(data: dict[str, Any]) -> None:
+            # "started" est envoyé quand ffmpeg commence la conversion en mp3
+            if data.get("status") == "started":
+                reporter.step(JobStatus.CONVERTING, None)
+
+        return {"progress_hooks": [on_download], "postprocessor_hooks": [on_postprocess]}
+
+    def download_audio(
+        self,
+        url: str,
+        destination_stem: Path,
+        quality_kbps: int,
+        reporter: ProgressReporter = NULL_REPORTER,
+    ) -> Path:
         destination_stem.parent.mkdir(parents=True, exist_ok=True)
         options = {
+            **self._make_hooks(reporter),
             **self._BASE_OPTIONS,
             "format": "bestaudio/best",
             # yt-dlp ajoute lui-même l'extension -> on lui donne le chemin sans extension.
