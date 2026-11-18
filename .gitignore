@@ -6,6 +6,7 @@ __pycache__/
 
 # Réglages propres à la machine (chemin du dossier Spotify, etc.)
 settings.json
+devices.json
 
 # Archive : seules les métadonnées (archive/metadata/*.json) sont versionnées.
 # Les mp3 et pochettes restent en local (trop lourds pour Git + droits d'auteur).

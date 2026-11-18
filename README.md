@@ -23,8 +23,22 @@ Options : `start.bat --port 8080 --no-browser`.
 2. Dans Spotify desktop › Paramètres › **Fichiers locaux** : active « Afficher les fichiers locaux » et **ajoute ce dossier comme source**.
 3. Les musiques apparaissent dans *Ta bibliothèque › Fichiers locaux*.
 
-### Sur iPhone
-Spotify ne permet qu'une méthode : sur le PC, ajoute les musiques à une **playlist** ; sur l'iPhone (même réseau Wi-Fi que le PC, Spotify ouvert sur les deux, « Fichiers locaux » activé dans les réglages iOS), ouvre cette playlist et **télécharge-la**.
+### Sur iPhone (accès depuis le téléphone)
+Spotify iOS lit les fichiers audio présents dans l'app **Fichiers**. LoFiMa peut y envoyer les mp3 :
+
+1. Sur le PC : **Réglages › Accès depuis le téléphone** › coche « Autoriser les appareils du Wi-Fi » › Enregistrer.
+2. **Relance l'appli** (ferme la fenêtre, puis `start.bat`). Windows demande d'autoriser Python dans le pare-feu : coche **Réseaux privés**.
+3. Rouvre les Réglages : un **QR code** s'affiche. Scanne-le avec l'appareil photo de l'iPhone (même Wi-Fi que le PC). L'iPhone reste connecté ensuite.
+4. Sur l'iPhone : Réglages › Apps › Safari › **Téléchargements** › choisis le dossier lu par Spotify.
+5. Dans LoFiMa sur l'iPhone : la barre **« N musique(s) à récupérer »** liste les nouveautés et les musiques modifiées → *Télécharger la suivante* (un fichier par appui : Safari bloque les téléchargements en rafale).
+
+Tu peux aussi ajouter des liens directement depuis l'iPhone : le téléchargement se fait sur le PC.
+
+**Appareils** : chaque navigateur est un appareil (bouton 📱 en haut) avec son nom et son mode :
+- *Dossier d'export du PC* : copie automatique dans le dossier Spotify du PC (mode par défaut du PC) ;
+- *Téléchargement sur cet appareil* : l'appli retient ce que l'appareil a récupéré (badges *Nouveau* / *Modifié* / *Sur l'appareil*). Mode par défaut des autres appareils.
+
+**Sécurité** : par défaut l'appli n'est accessible que depuis le PC. Avec l'accès activé, les autres appareils doivent présenter le **code d'accès** (dans le QR code). *Régénérer le code* déconnecte tous les appareils. Les réglages ne sont modifiables que depuis le PC. La connexion n'est pas chiffrée (HTTP) : à n'activer que sur ton Wi-Fi personnel.
 
 ### Google Drive (optionnel)
 Choisis comme dossier d'export un dossier de **Google Drive pour ordinateur** (ex : `G:\Mon Drive\LoFiMa`) : les mp3 sont alors aussi synchronisés sur Drive, sans config supplémentaire.
@@ -73,13 +87,16 @@ lofima/
   covers.py      image d'origine + rendu de la pochette recadrée (Pillow)
   exporter.py    copie vers le dossier Spotify (interface `Exporter`, extensible à Drive API)
   repository.py  stockage JSON, un fichier par musique
-  config.py      chemins + réglages utilisateur (settings.json)
+  config.py      chemins + réglages utilisateur (settings.json, contient le code d'accès)
+  access.py      accès Wi-Fi : code secret, IP du PC, QR code, page de connexion
+  devices.py     appareils (devices.json) + suivi de ce que chacun a récupéré
   models.py      modèles Pydantic (Track, TrackTags…)
   errors.py      exceptions métier → codes HTTP dans api.py
 web/             interface (HTML/CSS/JS sans framework)
   app.js         liste, fenêtres Modifier / Réglages
   queue.js       file d'attente + barres de progression (polling de /api/jobs)
   cropper.js     outil de recadrage
+  devices.js     appareil courant (nom, mode) — pairing.js : QR code / appareils dans Réglages
   api.js / ui.js client HTTP / utilitaires partagés
 tests/           pytest, hors ligne (faux downloader)
 ```
